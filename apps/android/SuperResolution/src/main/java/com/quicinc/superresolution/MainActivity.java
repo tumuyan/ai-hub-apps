@@ -5,10 +5,13 @@
 package com.quicinc.superresolution;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.ImageDecoder;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -17,6 +20,7 @@ import android.os.Looper;
 import android.provider.MediaStore;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -26,6 +30,7 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
@@ -37,6 +42,7 @@ import com.quicinc.tflite.AIHubDefaults;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.security.NoSuchAlgorithmException;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
@@ -54,20 +60,21 @@ public class MainActivity extends AppCompatActivity {
     TextView inferenceTimeView;
     TextView predictionTimeView;
     Spinner imageSelector, modelSelector;
-    Button predictionButton;
+    Button predictionButton, saveButton, prediction2Button, openButton;
     ActivityResultLauncher<Intent> selectImageResultLauncher;
     private final String fromGalleryImageSelectorOption = "From Gallery";
     private final String notSelectedImageSelectorOption = "Not Selected";
     private final String[] imageSelectorOptions =
-            { notSelectedImageSelectorOption,
+            {notSelectedImageSelectorOption,
+                 //   fromGalleryImageSelectorOption,
                     "Sample1.jpg",
                     "Sample2.jpg",
-                    fromGalleryImageSelectorOption};
+                     };
 
     private String[] modelSelectorOptions;
 
     // Inference Elements
-    Bitmap selectedImage = null; // Raw image, not resized
+    Bitmap selectedImage = null, resultImage; // Raw image, not resized
     private SuperResolution defaultDelegateUpscaler;
     private SuperResolution cpuOnlyUpscaler;
     private boolean cpuOnlyClassification = false;
@@ -99,6 +106,9 @@ public class MainActivity extends AppCompatActivity {
         inferenceTimeView = (TextView)findViewById(R.id.inferenceTimeResultText);
         predictionTimeView = (TextView)findViewById(R.id.predictionTimeResultText);
         predictionButton = (Button)findViewById(R.id.runModelButton);
+        prediction2Button = (Button)findViewById(R.id.runModel2Button);
+        saveButton = (Button)findViewById(R.id.saveButton);
+        openButton = (Button)findViewById(R.id.openButton);
 
         // Setup Image Selector Dropdown
         ArrayAdapter ad = new ArrayAdapter(this, android.R.layout.simple_spinner_item, imageSelectorOptions);
@@ -107,18 +117,23 @@ public class MainActivity extends AppCompatActivity {
         imageSelector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                Log.w("imageSelector","onItemSelected "+position );
                 // Load selected picture from assets
                 ((TextView) view).setTextColor(getResources().getColor(R.color.white));
                 if (!parent.getItemAtPosition(position).equals(notSelectedImageSelectorOption)) {
+                    resultImage = null;
                     if (parent.getItemAtPosition(position).equals(fromGalleryImageSelectorOption)) {
+//                        openButton.setClickable(true);
                         Intent i = new Intent();
                         i.setType("image/*");
                         i.setAction(Intent.ACTION_GET_CONTENT);
                         selectImageResultLauncher.launch(i);
                     } else {
+//                        openButton.setClickable(false);
                         loadImageFromStringAsync((String) parent.getItemAtPosition(position));
                     }
                 } else {
+//                    openButton.setClickable(false);
                     displayDefaultImage();
                 }
             }
@@ -126,6 +141,18 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onNothingSelected(AdapterView<?> parent) { }
         });
+
+        openButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                resultImage = null;
+                Intent i = new Intent();
+                i.setType("image/*");
+                i.setAction(Intent.ACTION_GET_CONTENT);
+                selectImageResultLauncher.launch(i);
+            }
+        });
+
 
         // Setup Model Selector Dropdown
         modelSelectorOptions = getResources().getStringArray(R.array.model_files);
@@ -151,6 +178,7 @@ public class MainActivity extends AppCompatActivity {
         selectImageResultLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
                 (ActivityResult result) -> {
+                    resultImage = null;
                     if (result.getResultCode() == Activity.RESULT_OK &&
                             result.getData() != null &&
                             result.getData().getData() != null) {
@@ -178,7 +206,13 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Setup button callback
-        predictionButton.setOnClickListener((view) -> updatePredictionDataAsync());
+        predictionButton.setOnClickListener((view) -> updatePredictionDataAsync(false));
+        prediction2Button.setOnClickListener((view) -> updatePredictionDataAsync(true));
+        saveButton.setOnClickListener((view) -> {
+            if(resultImage!=null){
+                saveData();
+            }
+        });
 
         // Enable image selection
         enableImageSelector();
@@ -196,6 +230,10 @@ public class MainActivity extends AppCompatActivity {
             predictionTimeView.setText("-- ms");
             predictionButton.setEnabled(false);
             predictionButton.setAlpha(0.5f);
+            prediction2Button.setEnabled(false);
+            prediction2Button.setAlpha(0.5f);
+            saveButton.setEnabled(false);
+            saveButton.setAlpha(0.5f);
             imageSelector.setEnabled(false);
             imageSelector.setAlpha(0.5f);
             modelSelector.setEnabled(false);
@@ -205,6 +243,8 @@ public class MainActivity extends AppCompatActivity {
         } else if (cpuOnlyUpscaler != null && defaultDelegateUpscaler != null && selectedImage != null) {
             predictionButton.setEnabled(true);
             predictionButton.setAlpha(1.0f);
+            prediction2Button.setEnabled(true);
+            prediction2Button.setAlpha(1.0f);
             enableImageSelector();
             enableModelSelector();
             enableDelegateSelectionButtons();
@@ -245,6 +285,7 @@ public class MainActivity extends AppCompatActivity {
         clearPredictionResults();
         selectedImageView.setImageResource(R.drawable.ic_launcher_background);
         selectedImage = null;
+        resultImage = null;
     }
 
     /**
@@ -254,6 +295,7 @@ public class MainActivity extends AppCompatActivity {
         if (selectedImage != null) {
             selectedImageView.setImageBitmap(selectedImage);
         }
+        resultImage = null;
         inferenceTimeView.setText("-- ms");
         predictionTimeView.setText("-- ms");
     }
@@ -272,8 +314,8 @@ public class MainActivity extends AppCompatActivity {
             try (InputStream inputImage = getAssets().open("images/" + imagePath)) {
                 selectedImage = BitmapFactory.decodeStream(inputImage);
                 // Downscale the image to the size the model supports.
-                int[] inputSize = defaultDelegateUpscaler.getInputWidthHeight();
-                selectedImage = ImageProcessing.resizeAndPadMaintainAspectRatio(selectedImage, inputSize[0], inputSize[1], 0xFF);
+//                int[] inputSize = defaultDelegateUpscaler.getInputWidthHeight();
+//                selectedImage = ImageProcessing.resizeAndPadMaintainAspectRatio(selectedImage, inputSize[0], inputSize[1], 0xFF);
             } catch (IOException e) {
                 throw new RuntimeException(e.getMessage());
             }
@@ -306,8 +348,8 @@ public class MainActivity extends AppCompatActivity {
                     selectedImage = MediaStore.Images.Media.getBitmap(getContentResolver(), imageUri);
                 }
                 // Downscale the image to the size the model supports.
-                int[] inputSize = defaultDelegateUpscaler.getInputWidthHeight();
-                selectedImage = ImageProcessing.resizeAndPadMaintainAspectRatio(selectedImage, inputSize[0], inputSize[1], 0xFF);
+//                int[] inputSize = defaultDelegateUpscaler.getInputWidthHeight();
+//                selectedImage = ImageProcessing.resizeAndPadMaintainAspectRatio(selectedImage, inputSize[0], inputSize[1], 0xFF);
             } catch (IOException e) {
                 throw new RuntimeException(e.getMessage());
             }
@@ -325,8 +367,9 @@ public class MainActivity extends AppCompatActivity {
      * Prediction will run asynchronously to the main UI thread.
      * Disables inference UI before inference and re-enables it afterwards.
      */
-    void updatePredictionDataAsync() {
+    void updatePredictionDataAsync(boolean save) {
         setInferenceUIEnabled(false);
+        resultImage = null;
 
         SuperResolution imageClassification;
         if (cpuOnlyClassification) {
@@ -338,21 +381,64 @@ public class MainActivity extends AppCompatActivity {
         // Exit the main UI thread and execute the model in the background.
         backgroundTaskExecutor.execute(() -> {
             // Background task
-            Bitmap result = imageClassification.generateUpscaledImage(selectedImage);
-            long inferenceTime = imageClassification.getLastInferenceTime();
-            long predictionTime = imageClassification.getLastPostprocessingTime() + inferenceTime + imageClassification.getLastPreprocessingTime();
+            long upscaleStartTime = System.nanoTime();
+            resultImage = imageClassification.generateUpscaledBigImage(selectedImage);
+            long inferenceTime = imageClassification.getInferenceTime();
             String inferenceTimeText = timeFormatter.format((double) inferenceTime / 1000000);
-            String predictionTimeText = timeFormatter.format((double) predictionTime / 1000000);
+            String predictionTimeText = timeFormatter.format((double) (System.nanoTime()-upscaleStartTime) / 1000000);
 
             mainLooperHandler.post(() -> {
                 // In main UI thread
-                selectedImageView.setImageBitmap(result);
+                selectedImageView.setImageBitmap(resultImage);
+                if(save){
+                    saveData();
+                }
                 inferenceTimeView.setText(inferenceTimeText + " ms");
                 predictionTimeView.setText(predictionTimeText + " ms");
                 setInferenceUIEnabled(true);
+                saveButton.setEnabled(true);
+                saveButton.setAlpha(1.0f);
             });
         });
     }
+
+    void saveData() {
+        setInferenceUIEnabled(false);
+
+            try {
+
+                ContentValues values = new ContentValues();
+//                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+
+                Uri dataUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+                Uri fileUri = getContentResolver().insert(dataUri, values);
+
+                if (fileUri == null) {
+                    return;
+                }
+
+                OutputStream outStream = getContentResolver().openOutputStream(fileUri);
+
+//                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outStream);
+                resultImage.compress(Bitmap.CompressFormat.JPEG, 90, outStream);
+                outStream.flush();
+                outStream.close();
+
+
+                // 刷新相册
+                sendBroadcast(new Intent("com.android.camera.NEW_PICTURE", fileUri));
+                Toast.makeText(this,"Saved",Toast.LENGTH_SHORT).show();
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                Toast.makeText(this,"Save fail",Toast.LENGTH_SHORT).show();
+            }
+
+        setInferenceUIEnabled(true);
+    }
+
+
 
     /**
      * Create inference upscaler objects.

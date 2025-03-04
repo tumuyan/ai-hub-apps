@@ -6,6 +6,8 @@ package com.quicinc.superresolution;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.util.Log;
 import android.util.Pair;
 
@@ -17,6 +19,7 @@ import org.tensorflow.lite.DataType;
 import org.tensorflow.lite.Delegate;
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.Tensor;
+import org.tensorflow.lite.support.common.ops.CastOp;
 import org.tensorflow.lite.support.common.ops.NormalizeOp;
 import org.tensorflow.lite.support.image.ColorSpaceType;
 import org.tensorflow.lite.support.image.ImageProcessor;
@@ -27,6 +30,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -35,6 +39,7 @@ public class SuperResolution implements AutoCloseable {
     private final Interpreter tfLiteInterpreter;
     private final Map<TFLiteHelpers.DelegateType, Delegate> tfLiteDelegateStore;
     private final int[] inputShape;
+    private int scale=1;
     private final DataType inputType;
     private final DataType outputType;
     private long preprocessingTime;
@@ -89,6 +94,7 @@ public class SuperResolution implements AutoCloseable {
         Tensor inputTensor = tfLiteInterpreter.getInputTensor(0);
         inputShape = inputTensor.shape();
         inputType = inputTensor.dataType();
+        Log.w("ModelInfo","Model path = "+modelPath+", inputShape = "+ Arrays.toString(Arrays.stream(inputShape).toArray()) +", length = "+inputShape.length);
         assert inputShape.length == 4; // 4D Input Tensor: [Batch, Height, Width, Channels]
         assert inputShape[0] == 1; // Batch size is 1
         assert inputShape[3] == 3; // Input tensor should have 3 channels
@@ -96,16 +102,17 @@ public class SuperResolution implements AutoCloseable {
 
         assert tfLiteInterpreter.getOutputTensorCount() == 1;
         Tensor outputTensor = tfLiteInterpreter.getOutputTensor(0);
-        int[] outputShape = outputTensor.shape();
+        int []outputShape = outputTensor.shape();
         outputType = outputTensor.dataType();
+        Log.w("ModelInfo","Model path = "+modelPath+", outputShape = "+ Arrays.toString(Arrays.stream(outputShape).toArray()) +", length = "+outputShape.length);
         assert outputShape.length == 4; // 4D Output Tensor: [Batch, Height, Width, Channels]
         assert outputShape[0] == 1; // Batch size is 1
         assert outputShape[3] == 3; // Output tensor should have 3 channels
         assert outputType == DataType.UINT8 || inputType == DataType.FLOAT32; // UINT8 (Quantized) and FP32 Input Supported
-
+        scale = outputShape[1]/inputShape[1];
         // Set-up preprocessor
         inputImageProcessor = new ImageProcessor.Builder().add(new NormalizeOp(0.0f, 255.0f)).build();
-        outputImageProcessor = new ImageProcessor.Builder().add(new NormalizeOp(0.0f, 1 / 255.0f)).build();
+        outputImageProcessor = new ImageProcessor.Builder().add(new NormalizeOp(0.0f, 1 / 255.0f)).add(new CastOp(DataType.UINT8)).build();
 
         // Set-up output image
         outputBuffer = TensorBuffer.createFixedSize(outputShape, outputType);
@@ -170,10 +177,10 @@ public class SuperResolution implements AutoCloseable {
         Bitmap resizedImg;
 
         // Resize input image
-        if (image.getHeight() > inputShape[1] || image.getWidth() > inputShape[2]) {
+        if (image.getWidth() > inputShape[1] || image.getHeight() > inputShape[2]) {
             // This image is larger than the model's desired input size.
             // While this app could easily resize the large image to fit, that defeats the purpose of super resolution.
-            throw new RuntimeException("Input image is too big for this model. Expected Width of " + inputShape[1] + " and Height of " + inputShape[2]);
+            throw new RuntimeException("Input image (" + image.getHeight()  + "*" +image.getWidth() + ") is too big for this model. Expected Width of " + inputShape[1] + " and Height of " + inputShape[2]);
         } else if (image.getHeight() != inputShape[1] || image.getWidth() != inputShape[2]) {
             resizedImg = ImageProcessing.resizeAndPadMaintainAspectRatio(image, inputShape[1], inputShape[2], 0xFF);
         } else {
@@ -234,5 +241,85 @@ public class SuperResolution implements AutoCloseable {
 
         // Postprocessing: Compute top K indices and convert to labels
         return postprocess();
+    }
+
+    long inferenceTime=0;
+
+    public long getInferenceTime() {
+        return inferenceTime;
+    }
+
+    public Bitmap generateUpscaledBigImage(Bitmap image) {
+        // Preprocessing: Resize, convert type
+//        if (image.getHeight() <= inputShape[1] && image.getWidth() <= inputShape[2]) {
+//            return generateUpscaledImage(image);
+//        }
+
+        inferenceTime=0;
+
+        int prepadding = 10;
+
+        int tileWidth = inputShape[1] - prepadding;
+        int tileHeight = inputShape[2] - prepadding;
+
+        int xtiles = (image.getWidth() + tileWidth - 1) / tileWidth;
+        int ytiles = (image.getHeight() + tileHeight - 1) / tileHeight;
+        Bitmap imageOut = Bitmap.createBitmap(image.getWidth() * scale, image.getHeight() * scale, image.getConfig());
+
+        // 使用Canvas来绘制颜色
+        Canvas canvas = new Canvas(imageOut);
+        canvas.drawColor(Color.GRAY); // 用指定颜色填充整个Bitmap
+
+//        Canvas canvas = new Canvas();
+//
+//        // 绘制基础图像
+//        canvas.drawBitmap(imageOut, 0, 0, null);
+
+        Log.w("generateUpscaledBigImage", "Input image " + image.getHeight() + "*" + image.getWidth() + ", model inputShape=" + inputShape[1] + "*" + inputShape[2] + ", scale=" + scale
+        );
+
+
+        for (int yi = 0; yi < ytiles; yi++) {
+            int tile_h_nopad = Integer.min((yi + 1) * inputShape[2], image.getHeight()) - yi * image.getHeight();
+
+            int in_tile_y0 = Integer.max(yi * tileHeight, 0);
+            int in_tile_y1 = Integer.min((yi + 1) * tileHeight + prepadding, image.getHeight());
+            int out_tile_y0 = yi > 0 ? scale * prepadding / 2 : 0;
+            int out_y0 = in_tile_y0 * scale + out_tile_y0;
+
+            for (int xi = 0; xi < xtiles; xi++) {
+
+                int in_tile_x0 = Integer.max(xi * tileWidth, 0);
+                int in_tile_x1 = Integer.min((xi + 1) * tileWidth + prepadding, image.getWidth());
+
+                Log.w("generateUpscaledBigImage", "xi=" + xi + "/" + xtiles + ", yi=" + yi + "/" + ytiles
+                        + ", in_tile_x0=" + in_tile_x0 + ", in_tile_x1=" + in_tile_x1
+                        + ", in_tile_y0=" + in_tile_y0 + ", in_tile_y1=" + in_tile_y1
+                );
+
+                Bitmap inputTile = Bitmap.createBitmap(image, in_tile_x0, in_tile_y0, in_tile_x1 - in_tile_x0, in_tile_y1 - in_tile_y0);
+
+                ByteBuffer[] inputs = preprocess(inputTile);
+
+                // Inference
+                outputBuffer.getBuffer().clear();
+                tfLiteInterpreter.runForMultipleInputsOutputs(inputs, outputBindings);
+                // Postprocessing: Compute top K indices and convert to labels
+                Bitmap outputTile = postprocess();
+
+                inferenceTime+= tfLiteInterpreter.getLastNativeInferenceDurationNanoseconds();
+                int out_tile_x0 = xi > 0 ? scale * prepadding / 2 : 0;
+                int out_x0 = in_tile_x0 * scale + out_tile_x0;
+
+                if (xi > 0 || yi > 0) {
+                    Bitmap croppedTile = Bitmap.createBitmap(outputTile, out_tile_x0, out_tile_y0, (inputShape[1] * scale-out_tile_x0), (inputShape[2] * scale-out_tile_y0));
+                    canvas.drawBitmap(croppedTile, out_x0, out_y0, null);
+                } else
+                    canvas.drawBitmap(outputTile, out_x0, out_y0, null);
+            }
+
+        }
+
+        return imageOut;
     }
 }
