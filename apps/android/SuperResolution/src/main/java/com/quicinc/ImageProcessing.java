@@ -45,13 +45,32 @@ public class ImageProcessing {
         return outputImage;
     }
 
+    /**
+     * padding a bitmap without ratio.
+     *
+     * @param image  Image to resize
+     * @param outputBitmapWidth  Final width
+     * @param outputBitmapHeight  Final height
+     * @param paddingValue  Value to use for padding (usually 0 or 0xFF)
+     * @return Resized & padded bitmap
+     */
+    public static Bitmap padding(
+            Bitmap image,
+            int outputBitmapWidth,
+            int outputBitmapHeight,
+            int paddingValue) {
+        Bitmap outputImage = Bitmap.createBitmap(outputBitmapWidth, outputBitmapHeight, Bitmap.Config.ARGB_8888);
+        Canvas can = new Canvas(outputImage);
+        can.drawARGB(0xFF, paddingValue, paddingValue, paddingValue);
+        can.drawBitmap(image, null, new RectF(0, 0, image.getWidth(), image.getHeight()),null);
+        return outputImage;
+    }
 
     public static Bitmap cropBitmap(Bitmap original, int x0, int y0, int x1, int y1) {
         // 确保坐标在Bitmap范围内
         if (original == null || x0 < 0 || y0 < 0 || x1 > original.getWidth() || y1 > original.getHeight() || x0 >= x1 || y0 >= y1) {
             throw new IllegalArgumentException("Invalid crop coordinates or bitmap is null");
         }
-
         // 裁剪区域
         return Bitmap.createBitmap(original, x0, y0, x1 - x0, y1 - y0);
     }

@@ -114,3 +114,4 @@ dmypy.json
 **/*.mlmodel
 **/*.tflite
 apps/android/SuperResolution/src/main/res/values/models.xml
+/apps/android/SuperResolution/release

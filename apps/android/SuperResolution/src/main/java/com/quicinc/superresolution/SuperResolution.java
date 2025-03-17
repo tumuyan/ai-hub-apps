@@ -8,6 +8,9 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.util.Log;
 import android.util.Pair;
 
@@ -182,7 +185,7 @@ public class SuperResolution implements AutoCloseable {
             // While this app could easily resize the large image to fit, that defeats the purpose of super resolution.
             throw new RuntimeException("Input image (" + image.getHeight()  + "*" +image.getWidth() + ") is too big for this model. Expected Width of " + inputShape[1] + " and Height of " + inputShape[2]);
         } else if (image.getHeight() != inputShape[1] || image.getWidth() != inputShape[2]) {
-            resizedImg = ImageProcessing.resizeAndPadMaintainAspectRatio(image, inputShape[1], inputShape[2], 0xFF);
+            resizedImg = ImageProcessing.padding(image, inputShape[1], inputShape[2], 0xFF);
         } else {
             resizedImg = image;
         }
@@ -250,10 +253,12 @@ public class SuperResolution implements AutoCloseable {
     }
 
     public Bitmap generateUpscaledBigImage(Bitmap image) {
-        // Preprocessing: Resize, convert type
-//        if (image.getHeight() <= inputShape[1] && image.getWidth() <= inputShape[2]) {
-//            return generateUpscaledImage(image);
-//        }
+
+        int inWidth = image.getWidth();
+        int inHeight = image.getHeight();
+
+        int outWidth = inWidth*scale;
+        int outHeight = inHeight*scale;
 
         inferenceTime=0;
 
@@ -262,35 +267,29 @@ public class SuperResolution implements AutoCloseable {
         int tileWidth = inputShape[1] - prepadding;
         int tileHeight = inputShape[2] - prepadding;
 
-        int xtiles = (image.getWidth() + tileWidth - 1) / tileWidth;
-        int ytiles = (image.getHeight() + tileHeight - 1) / tileHeight;
-        Bitmap imageOut = Bitmap.createBitmap(image.getWidth() * scale, image.getHeight() * scale, image.getConfig());
+        int xtiles = (inWidth+ tileWidth - 1) / tileWidth;
+        int ytiles = (inHeight + tileHeight - 1) / tileHeight;
+        Bitmap imageOut = Bitmap.createBitmap(outWidth, outHeight, image.getConfig());
 
         // 使用Canvas来绘制颜色
         Canvas canvas = new Canvas(imageOut);
         canvas.drawColor(Color.GRAY); // 用指定颜色填充整个Bitmap
 
-//        Canvas canvas = new Canvas();
-//
-//        // 绘制基础图像
-//        canvas.drawBitmap(imageOut, 0, 0, null);
 
-        Log.w("generateUpscaledBigImage", "Input image " + image.getHeight() + "*" + image.getWidth() + ", model inputShape=" + inputShape[1] + "*" + inputShape[2] + ", scale=" + scale
+        Log.w("generateUpscaledBigImage", "Input image " + inHeight + "*" + inWidth + ", model inputShape=" + inputShape[1] + "*" + inputShape[2] + ", scale=" + scale
         );
 
 
         for (int yi = 0; yi < ytiles; yi++) {
-            int tile_h_nopad = Integer.min((yi + 1) * inputShape[2], image.getHeight()) - yi * image.getHeight();
-
             int in_tile_y0 = Integer.max(yi * tileHeight, 0);
-            int in_tile_y1 = Integer.min((yi + 1) * tileHeight + prepadding, image.getHeight());
+            int in_tile_y1 = Integer.min((yi + 1) * tileHeight + prepadding, inHeight);
             int out_tile_y0 = yi > 0 ? scale * prepadding / 2 : 0;
             int out_y0 = in_tile_y0 * scale + out_tile_y0;
 
             for (int xi = 0; xi < xtiles; xi++) {
 
                 int in_tile_x0 = Integer.max(xi * tileWidth, 0);
-                int in_tile_x1 = Integer.min((xi + 1) * tileWidth + prepadding, image.getWidth());
+                int in_tile_x1 = Integer.min((xi + 1) * tileWidth + prepadding, inWidth);
 
                 Log.w("generateUpscaledBigImage", "xi=" + xi + "/" + xtiles + ", yi=" + yi + "/" + ytiles
                         + ", in_tile_x0=" + in_tile_x0 + ", in_tile_x1=" + in_tile_x1
@@ -320,6 +319,47 @@ public class SuperResolution implements AutoCloseable {
 
         }
 
+        if (image.hasAlpha() ) {
+            Log.i("UpscaledBigImage","copy alpha channel");
+/*
+
+            int[] pixels = new int[inWidth * inHeight];
+            image.getPixels(pixels, 0, inWidth, 0, 0, inWidth, inHeight); // 获取所有像素
+
+            int firstAlpha = (pixels[0] >> 24) & 0xff; // 获取第一个像素的Alpha值
+
+            for (int pixel : pixels) {
+                int alpha = (pixel >> 24) & 0xff;
+                if (alpha != firstAlpha) {
+                    return imageOut;
+                }
+            }
+*/
+
+
+            Bitmap scaledBitmap = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888);
+
+            // 使用Canvas和Paint来绘制
+            Canvas canvas1 = new Canvas(scaledBitmap);
+            Paint paint = new Paint();
+
+            // 绘制RGB通道
+            canvas1.drawBitmap(imageOut, 0, 0, paint);
+
+            // 使用PorterDuff合并Alpha通道
+            paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+            // 把原始图像的Alpha通道绘制到目标Bitmap上，采用scale倍放大
+            Bitmap scaledAlpha = Bitmap.createScaledBitmap(image, outWidth, outHeight, true);
+            canvas1.drawBitmap(scaledAlpha, 0, 0, paint);
+            paint.setXfermode(null);
+
+            // 重cycle对应的Bitmap以释放内存
+            scaledAlpha.recycle();
+
+            Log.i("UpscaledBigImage","copy alpha channel finish");
+            return scaledBitmap;
+
+        }else
         return imageOut;
     }
 }

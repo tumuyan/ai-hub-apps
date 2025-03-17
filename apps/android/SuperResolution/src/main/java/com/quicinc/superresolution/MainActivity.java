@@ -66,10 +66,10 @@ public class MainActivity extends AppCompatActivity {
     private final String notSelectedImageSelectorOption = "Not Selected";
     private final String[] imageSelectorOptions =
             {notSelectedImageSelectorOption,
-                 //   fromGalleryImageSelectorOption,
+                    //   fromGalleryImageSelectorOption,
                     "Sample1.jpg",
                     "Sample2.jpg",
-                     };
+            };
 
     private String[] modelSelectorOptions;
 
@@ -98,17 +98,17 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.main_activity);
         selectedImageView = (ImageView) findViewById(R.id.selectedImageView);
         delegateSelectionGroup = (RadioGroup) findViewById(R.id.delegateSelectionGroup);
-        cpuOnlyButton = (RadioButton)findViewById(R.id.cpuOnlyRadio);
-        allDelegatesButton = (RadioButton)findViewById(R.id.defaultDelegateRadio);
+        cpuOnlyButton = (RadioButton) findViewById(R.id.cpuOnlyRadio);
+        allDelegatesButton = (RadioButton) findViewById(R.id.defaultDelegateRadio);
 
         imageSelector = (Spinner) findViewById((R.id.imageSelector));
         modelSelector = (Spinner) findViewById((R.id.modelSelector));
-        inferenceTimeView = (TextView)findViewById(R.id.inferenceTimeResultText);
-        predictionTimeView = (TextView)findViewById(R.id.predictionTimeResultText);
-        predictionButton = (Button)findViewById(R.id.runModelButton);
-        prediction2Button = (Button)findViewById(R.id.runModel2Button);
-        saveButton = (Button)findViewById(R.id.saveButton);
-        openButton = (Button)findViewById(R.id.openButton);
+        inferenceTimeView = (TextView) findViewById(R.id.inferenceTimeResultText);
+        predictionTimeView = (TextView) findViewById(R.id.predictionTimeResultText);
+        predictionButton = (Button) findViewById(R.id.runModelButton);
+        prediction2Button = (Button) findViewById(R.id.runModel2Button);
+        saveButton = (Button) findViewById(R.id.saveButton);
+        openButton = (Button) findViewById(R.id.openButton);
 
         // Setup Image Selector Dropdown
         ArrayAdapter ad = new ArrayAdapter(this, android.R.layout.simple_spinner_item, imageSelectorOptions);
@@ -117,7 +117,7 @@ public class MainActivity extends AppCompatActivity {
         imageSelector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                Log.w("imageSelector","onItemSelected "+position );
+                Log.w("imageSelector", "onItemSelected " + position);
                 // Load selected picture from assets
                 ((TextView) view).setTextColor(getResources().getColor(R.color.white));
                 if (!parent.getItemAtPosition(position).equals(notSelectedImageSelectorOption)) {
@@ -139,7 +139,8 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onNothingSelected(AdapterView<?> parent) { }
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
         });
 
         openButton.setOnClickListener(new View.OnClickListener() {
@@ -172,7 +173,8 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onNothingSelected(AdapterView<?> parent) { }
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
         });
         // Setup Image Selection from Phone Gallery
         selectImageResultLauncher = registerForActivityResult(
@@ -182,7 +184,7 @@ public class MainActivity extends AppCompatActivity {
                     if (result.getResultCode() == Activity.RESULT_OK &&
                             result.getData() != null &&
                             result.getData().getData() != null) {
-                        loadImageFromURIAsync((Uri)(result.getData().getData()));
+                        loadImageFromURIAsync((Uri) (result.getData().getData()));
                     } else {
                         displayDefaultImage();
                     }
@@ -209,7 +211,7 @@ public class MainActivity extends AppCompatActivity {
         predictionButton.setOnClickListener((view) -> updatePredictionDataAsync(false));
         prediction2Button.setOnClickListener((view) -> updatePredictionDataAsync(true));
         saveButton.setOnClickListener((view) -> {
-            if(resultImage!=null){
+            if (resultImage != null) {
                 saveData();
             }
         });
@@ -258,6 +260,7 @@ public class MainActivity extends AppCompatActivity {
         imageSelector.setEnabled(true);
         imageSelector.setAlpha(1.0f);
     }
+
     /**
      * Enable the model selector UI spinner.
      */
@@ -385,12 +388,12 @@ public class MainActivity extends AppCompatActivity {
             resultImage = imageClassification.generateUpscaledBigImage(selectedImage);
             long inferenceTime = imageClassification.getInferenceTime();
             String inferenceTimeText = timeFormatter.format((double) inferenceTime / 1000000);
-            String predictionTimeText = timeFormatter.format((double) (System.nanoTime()-upscaleStartTime) / 1000000);
+            String predictionTimeText = timeFormatter.format((double) (System.nanoTime() - upscaleStartTime) / 1000000);
 
             mainLooperHandler.post(() -> {
                 // In main UI thread
                 selectedImageView.setImageBitmap(resultImage);
-                if(save){
+                if (save) {
                     saveData();
                 }
                 inferenceTimeView.setText(inferenceTimeText + " ms");
@@ -405,39 +408,39 @@ public class MainActivity extends AppCompatActivity {
     void saveData() {
         setInferenceUIEnabled(false);
 
-            try {
+        try {
 
-                ContentValues values = new ContentValues();
-//                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
-                values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            ContentValues values = new ContentValues();
 
-                Uri dataUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-                Uri fileUri = getContentResolver().insert(dataUri, values);
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+//                values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
 
-                if (fileUri == null) {
-                    return;
-                }
+            Uri dataUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+            Uri fileUri = getContentResolver().insert(dataUri, values);
 
-                OutputStream outStream = getContentResolver().openOutputStream(fileUri);
-
-//                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outStream);
-                resultImage.compress(Bitmap.CompressFormat.JPEG, 90, outStream);
-                outStream.flush();
-                outStream.close();
-
-
-                // 刷新相册
-                sendBroadcast(new Intent("com.android.camera.NEW_PICTURE", fileUri));
-                Toast.makeText(this,"Saved",Toast.LENGTH_SHORT).show();
-
-            } catch (Exception ex) {
-                ex.printStackTrace();
-                Toast.makeText(this,"Save fail",Toast.LENGTH_SHORT).show();
+            if (fileUri == null) {
+                return;
             }
+
+            OutputStream outStream = getContentResolver().openOutputStream(fileUri);
+
+            resultImage.compress(Bitmap.CompressFormat.PNG, 100, outStream);
+//                resultImage.compress(Bitmap.CompressFormat.JPEG, 90, outStream);
+            outStream.flush();
+            outStream.close();
+
+
+            // 刷新相册
+            sendBroadcast(new Intent("com.android.camera.NEW_PICTURE", fileUri));
+            Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            Toast.makeText(this, "Save fail", Toast.LENGTH_SHORT).show();
+        }
 
         setInferenceUIEnabled(true);
     }
-
 
 
     /**
@@ -458,20 +461,25 @@ public class MainActivity extends AppCompatActivity {
             // Create two upscalers.
             // One uses the default set of delegates (can access NPU, GPU, CPU), and the other uses only XNNPack (CPU).
             try {
+                long modelLoadStartTime = System.nanoTime();
                 defaultDelegateUpscaler = new SuperResolution(
                         this,
                         tfLiteModelAsset,
                         AIHubDefaults.delegatePriorityOrder /* AI Hub Defaults */
                 );
+                long modelLoadTime1 = System.nanoTime();
                 cpuOnlyUpscaler = new SuperResolution(
                         this,
                         tfLiteModelAsset,
                         AIHubDefaults.delegatePriorityOrderForDelegates(new HashSet<>() /* No delegates; cpu only */)
                 );
+                long modelLoadTime2 = System.nanoTime();
+                Log.w("model Load time", "default = " + (modelLoadTime1 - modelLoadStartTime) / 1000000
+                        + "ms, cpu = " + (modelLoadTime2 - modelLoadTime1) / 1000000 + "ms");
             } catch (IOException | NoSuchAlgorithmException e) {
                 throw new RuntimeException(e.getMessage());
             }
-            Log.i("createTFLiteUpscalerAsync","model load finish: "+tfLiteModelAsset);
+            Log.i("createTFLiteUpscalerAsync", "model load finish: " + tfLiteModelAsset);
 
             mainLooperHandler.post(() -> setInferenceUIEnabled(true));
         });
