@@ -1,0 +1,92 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    compileSdk Integer.valueOf(androidCompileSDK)
+
+    defaultConfig {
+        applicationId "com.quicinc.inpaint"
+        minSdk Integer.valueOf(androidMinSDK)
+        targetSdk Integer.valueOf(androidTargetSDK)
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        resValue( "string", "tfLiteModelAsset", project.properties['superresolution_tfLiteModelAsset'])
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.valueOf("VERSION_$javaSourceCompatibilityVersion")
+        targetCompatibility JavaVersion.valueOf("VERSION_$javaTargetCompatibilityVersion")
+    }
+
+    preBuild.doFirst {
+        generateModelList()
+
+        for (int i = 1; i <= 2; ++i) {
+            String filename = "./src/main/assets/images/Sample${i}.jpg"
+            File fp = file(filename)
+            // If the image is too small, it is likely an ascii file with LFS information
+            if (!fp.exists() || fp.length() < 1000) {
+                throw new RuntimeException(missingLfsErrorMsg)
+            }
+        }
+    }
+
+    namespace 'com.quicinc.inpaint'
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    api 'org.tensorflow:tensorflow-lite:2.16.1'
+    api 'org.tensorflow:tensorflow-lite-support:0.4.4'
+    implementation 'org.tensorflow:tensorflow-lite-gpu:2.16.1'
+    implementation 'org.tensorflow:tensorflow-lite-gpu-api:2.16.1'
+    implementation 'org.tensorflow:tensorflow-lite-gpu-delegate-plugin:0.4.4'
+    implementation "com.qualcomm.qti:qnn-runtime:$qnnVersion"
+    implementation "com.qualcomm.qti:qnn-tflite-delegate:$qnnVersion"
+}
+
+if (System.getProperty("user.dir") != project.rootDir.path) {
+    throw new RuntimeException("This project should be opened from the `android` directory (parent of SuperResolution directory), NOT the SuperResolution directory.")
+}
+
+
+def generateModelList() {
+        def assetsDir = file("${projectDir}/src/main/assets")
+        def outputDir = file("${projectDir}/src/main/res/values")
+        def outputFile = file("${outputDir}/models.xml")
+        if (!outputDir.exists()) {
+            throw new GradleException("res directory not exist: ${outputDir}")
+        }
+        if (!assetsDir.exists()) {
+            throw new GradleException("assets directory not exist: ${assetsDir}")
+        }
+
+        def files = []
+        if (assetsDir.exists()) {
+            files = assetsDir.listFiles().findAll { it.name.endsWith('.tflite') || it.name.endsWith('.bin')  }.collect { it.name }
+        }
+
+        def xmlContent = """<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="model_files">
+"""
+        files.each { fileName ->
+            xmlContent += "        <item>${fileName}</item>\n"
+        }
+        xmlContent += """    </string-array>
+</resources>
+"""
+        outputFile.text = xmlContent
+
+}

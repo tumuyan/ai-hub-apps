@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="model_files">
+        <item>aotgan.tflite</item>
+        <item>lama_dilated.tflite</item>
+    </string-array>
+</resources>
