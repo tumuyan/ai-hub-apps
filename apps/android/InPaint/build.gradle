@@ -82,7 +82,9 @@ def generateModelList() {
     <string-array name="model_files">
 """
         files.each { fileName ->
-            xmlContent += "        <item>${fileName}</item>\n"
+            if (fileName.endsWith('.tflite')) {
+                xmlContent += "        <item>${fileName}</item>\n"
+            }
         }
         xmlContent += """    </string-array>
 </resources>

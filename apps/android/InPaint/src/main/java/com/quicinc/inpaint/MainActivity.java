@@ -34,6 +34,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.quicinc.MaskDrawingView;
+import com.quicinc.MaskableImageView;
 import com.quicinc.tflite.AIHubDefaults;
 
 import java.io.IOException;
@@ -52,7 +54,8 @@ public class MainActivity extends AppCompatActivity {
     RadioGroup delegateSelectionGroup;
     RadioButton allDelegatesButton;
     RadioButton cpuOnlyButton;
-    ImageView selectedImageView;
+//    MaskDrawingView selectedImageView;
+    MaskableImageView selectedImageView;
     TextView inferenceTimeView;
     TextView predictionTimeView;
     Spinner imageSelector, modelSelector;
@@ -92,7 +95,7 @@ public class MainActivity extends AppCompatActivity {
         // UI Initialization
         //
         setContentView(R.layout.main_activity);
-        selectedImageView = (ImageView) findViewById(R.id.selectedImageView);
+        selectedImageView = findViewById(R.id.selectedImageView);
         delegateSelectionGroup = (RadioGroup) findViewById(R.id.delegateSelectionGroup);
         cpuOnlyButton = (RadioButton) findViewById(R.id.cpuOnlyRadio);
         allDelegatesButton = (RadioButton) findViewById(R.id.defaultDelegateRadio);
@@ -293,7 +296,7 @@ public class MainActivity extends AppCompatActivity {
      */
     void clearPredictionResults() {
         if (selectedImage != null) {
-            selectedImageView.setImageBitmap(selectedImage);
+            selectedImageView.setImage(selectedImage,true);
         }
         resultImage = null;
         inferenceTimeView.setText("-- ms");
@@ -322,7 +325,7 @@ public class MainActivity extends AppCompatActivity {
 
             mainLooperHandler.post(() -> {
                 // In main UI thread
-                selectedImageView.setImageBitmap(selectedImage);
+                selectedImageView.setImage(selectedImage,true);
                 setInferenceUIEnabled(true);
             });
         });
@@ -356,7 +359,7 @@ public class MainActivity extends AppCompatActivity {
 
             mainLooperHandler.post(() -> {
                 // In main UI thread
-                selectedImageView.setImageBitmap(selectedImage);
+                selectedImageView.setImage(selectedImage,true);
                 setInferenceUIEnabled(true);
             });
         });
@@ -382,14 +385,16 @@ public class MainActivity extends AppCompatActivity {
         backgroundTaskExecutor.execute(() -> {
             // Background task
             long upscaleStartTime = System.nanoTime();
-            resultImage = imageClassification.generateUpscaledBigImage(selectedImage);
+//            resultImage = imageClassification.generateUpscaledImage(selectedImage, selectedImageView.getMaskedBitmap());
+
+            resultImage = imageClassification.generateUpscaledImage(selectedImage, selectedImageView.getMask());
             long inferenceTime = imageClassification.getInferenceTime();
             String inferenceTimeText = timeFormatter.format((double) inferenceTime / 1000000);
             String predictionTimeText = timeFormatter.format((double) (System.nanoTime() - upscaleStartTime) / 1000000);
 
             mainLooperHandler.post(() -> {
                 // In main UI thread
-                selectedImageView.setImageBitmap(resultImage);
+                selectedImageView.setImage(resultImage);
                 if (save) {
                     saveData();
                 }

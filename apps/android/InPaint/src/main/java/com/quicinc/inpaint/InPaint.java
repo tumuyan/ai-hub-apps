@@ -48,6 +48,7 @@ public class InPaint implements AutoCloseable {
     private long preprocessingTime;
     private long postprocessingTime;
     private final ImageProcessor inputImageProcessor;
+    private final ImageProcessor maskImageProcessor;
     private final ImageProcessor outputImageProcessor;
     private final TensorBuffer outputBuffer;
     private final Map<Integer, Object> outputBindings;
@@ -92,12 +93,27 @@ public class InPaint implements AutoCloseable {
         tfLiteInterpreter = iResult.first;
         tfLiteDelegateStore = iResult.second;
 
+        Log.w("ModelInfo", "input count:"+tfLiteInterpreter.getInputTensorCount()+", output count"+tfLiteInterpreter.getOutputTensorCount());
+
         // Validate TF Lite model fits requirements for this app
-        assert tfLiteInterpreter.getInputTensorCount() == 1;
+        assert tfLiteInterpreter.getInputTensorCount() == 2;
         Tensor inputTensor = tfLiteInterpreter.getInputTensor(0);
+        Tensor maskTensor = tfLiteInterpreter.getInputTensor(1);
         inputShape = inputTensor.shape();
         inputType = inputTensor.dataType();
-        Log.w("ModelInfo","Model path = "+modelPath+", inputShape = "+ Arrays.toString(Arrays.stream(inputShape).toArray()) +", length = "+inputShape.length);
+        int[] maskShape = maskTensor.shape();
+
+        assert maskTensor.dataType() == inputType;
+        assert maskShape.length == 4; // 4D Mask Tensor: [Batch, Height, Width, Channels]
+        assert maskShape[0] == 1; // Batch size is 1
+        assert maskShape[1] == inputShape[1];
+        assert maskShape[2] == inputShape[2];
+        assert maskShape[3] == 1; // Mask tensor should have 1 channel
+
+        Log.w("ModelInfo","Model path = "+modelPath
+                +", inputShape = "+ Arrays.toString(Arrays.stream(inputShape).toArray()) +", length = "+inputShape.length
+                +", maskShape = "+Arrays.toString(Arrays.stream(maskShape).toArray())
+        );
         assert inputShape.length == 4; // 4D Input Tensor: [Batch, Height, Width, Channels]
         assert inputShape[0] == 1; // Batch size is 1
         assert inputShape[3] == 3; // Input tensor should have 3 channels
@@ -115,6 +131,7 @@ public class InPaint implements AutoCloseable {
         scale = outputShape[1]/inputShape[1];
         // Set-up preprocessor
         inputImageProcessor = new ImageProcessor.Builder().add(new NormalizeOp(0.0f, 255.0f)).build();
+        maskImageProcessor = new ImageProcessor.Builder().add(new NormalizeOp(0.0f, 255.0f)).build();
         outputImageProcessor = new ImageProcessor.Builder().add(new NormalizeOp(0.0f, 1 / 255.0f)).add(new CastOp(DataType.UINT8)).build();
 
         // Set-up output image
@@ -175,35 +192,64 @@ public class InPaint implements AutoCloseable {
      * @param image RGBA-8888 Bitmap to preprocess.
      * @return Array of inputs to pass to the interpreter.
      */
-    private ByteBuffer[] preprocess(Bitmap image) {
+    private ByteBuffer preprocess(Bitmap image,int channel) {
         long prepStartTime = System.nanoTime();
         Bitmap resizedImg;
 
         // Resize input image
         if (image.getWidth() > inputShape[1] || image.getHeight() > inputShape[2]) {
+            resizedImg = ImageProcessing.resizeAndPadMaintainAspectRatio(image, inputShape[1], inputShape[2], 0xFF,channel);
             // This image is larger than the model's desired input size.
             // While this app could easily resize the large image to fit, that defeats the purpose of super resolution.
-            throw new RuntimeException("Input image (" + image.getHeight()  + "*" +image.getWidth() + ") is too big for this model. Expected Width of " + inputShape[1] + " and Height of " + inputShape[2]);
-        } else if (image.getHeight() != inputShape[1] || image.getWidth() != inputShape[2]) {
-            resizedImg = ImageProcessing.padding(image, inputShape[1], inputShape[2], 0xFF);
-        } else {
-            resizedImg = image;
+//            throw new RuntimeException("Input image (" + image.getHeight()  + "*" +image.getWidth() + ") is too big for this model. Expected Width of " + inputShape[1] + " and Height of " + inputShape[2]);
+        } else  {
+            resizedImg = ImageProcessing.padding(image, inputShape[1], inputShape[2], 0xFF,channel);
+        }
+        ByteBuffer inputBuffer;
+        if (image.getConfig()==Bitmap.Config.ALPHA_8){
+            inputBuffer = bitmapToByteBuffer(resizedImg);
+            Log.d("Image","Width="+resizedImg.getWidth()+", Height="+resizedImg.getHeight()+", channel="+resizedImg.getConfig().toString()+", buff="+inputBuffer.array().length);
+          return   inputBuffer;
         }
 
         // Convert type and fill input buffer
-        ByteBuffer inputBuffer;
+
         TensorImage tImg = TensorImage.fromBitmap(resizedImg);
+        int[] shape = tImg.getTensorBuffer().getShape();
         if (inputType == DataType.FLOAT32) {
             // Divide float values by 255
             inputBuffer = inputImageProcessor.process(tImg).getBuffer();
         } else {
             inputBuffer = tImg.getTensorBuffer().getBuffer();
         }
+        Log.w("Image","channel="+channel+", config="+image.getConfig() + ", tImg shape("+shape.length+")="+ shape[0]+","+shape[1]+","+shape[2]+", length="+inputBuffer.array().length);
 
         preprocessingTime = System.nanoTime() - prepStartTime;
         Log.d(TAG, "Preprocessing Time: " + preprocessingTime / 1000000 + " ms");
 
-        return new ByteBuffer[] {inputBuffer};
+        return inputBuffer;
+    }
+
+
+    public static ByteBuffer bitmapToByteBuffer(Bitmap bitmap) {
+
+        // 创建 ByteBuffer，假设每个像素使用 4 字节（浮点数）
+        int batchSize = 1;
+        int height = 512;
+        int width = 512;
+        int channels = 1; // 单通道
+
+        // 计算字节大小
+        int byteSize = batchSize * height * width * channels * 4; // 4 字节
+        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(byteSize);
+
+        // 将 Bitmap 的像素复制到 ByteBuffer 中
+        bitmap.copyPixelsToBuffer(byteBuffer);
+
+        // 重置 ByteBuffer 的位置，以便后续读取
+        byteBuffer.rewind();
+
+        return byteBuffer;
     }
 
 
@@ -234,13 +280,14 @@ public class InPaint implements AutoCloseable {
      * @param image RGBA-8888 bitmap image to upscale.
      * @return Predicted, upscaled image, in RGBA-8888 format.
      */
-    public Bitmap generateUpscaledImage(Bitmap image) {
+    public Bitmap generateUpscaledImage(Bitmap image, Bitmap mask) {
         // Preprocessing: Resize, convert type
-        ByteBuffer[] inputs = preprocess(image);
+        ByteBuffer imgBuffer = preprocess(image,3);
+        ByteBuffer maskBuffer =  preprocess(mask,1);
 
         // Inference
         outputBuffer.getBuffer().clear();
-        tfLiteInterpreter.runForMultipleInputsOutputs(inputs, outputBindings);
+        tfLiteInterpreter.runForMultipleInputsOutputs(new ByteBuffer[]{imgBuffer,maskBuffer}, outputBindings);
 
         // Postprocessing: Compute top K indices and convert to labels
         return postprocess();
@@ -252,114 +299,5 @@ public class InPaint implements AutoCloseable {
         return inferenceTime;
     }
 
-    public Bitmap generateUpscaledBigImage(Bitmap image) {
 
-        int inWidth = image.getWidth();
-        int inHeight = image.getHeight();
-
-        int outWidth = inWidth*scale;
-        int outHeight = inHeight*scale;
-
-        inferenceTime=0;
-
-        int prepadding = 10;
-
-        int tileWidth = inputShape[1] - prepadding;
-        int tileHeight = inputShape[2] - prepadding;
-
-        int xtiles = (inWidth+ tileWidth - 1) / tileWidth;
-        int ytiles = (inHeight + tileHeight - 1) / tileHeight;
-        Bitmap imageOut = Bitmap.createBitmap(outWidth, outHeight, image.getConfig());
-
-        // 使用Canvas来绘制颜色
-        Canvas canvas = new Canvas(imageOut);
-        canvas.drawColor(Color.GRAY); // 用指定颜色填充整个Bitmap
-
-
-        Log.w("generateUpscaledBigImage", "Input image " + inHeight + "*" + inWidth + ", model inputShape=" + inputShape[1] + "*" + inputShape[2] + ", scale=" + scale
-        );
-
-
-        for (int yi = 0; yi < ytiles; yi++) {
-            int in_tile_y0 = Integer.max(yi * tileHeight, 0);
-            int in_tile_y1 = Integer.min((yi + 1) * tileHeight + prepadding, inHeight);
-            int out_tile_y0 = yi > 0 ? scale * prepadding / 2 : 0;
-            int out_y0 = in_tile_y0 * scale + out_tile_y0;
-
-            for (int xi = 0; xi < xtiles; xi++) {
-
-                int in_tile_x0 = Integer.max(xi * tileWidth, 0);
-                int in_tile_x1 = Integer.min((xi + 1) * tileWidth + prepadding, inWidth);
-
-                Log.w("generateUpscaledBigImage", "xi=" + xi + "/" + xtiles + ", yi=" + yi + "/" + ytiles
-                        + ", in_tile_x0=" + in_tile_x0 + ", in_tile_x1=" + in_tile_x1
-                        + ", in_tile_y0=" + in_tile_y0 + ", in_tile_y1=" + in_tile_y1
-                );
-
-                Bitmap inputTile = Bitmap.createBitmap(image, in_tile_x0, in_tile_y0, in_tile_x1 - in_tile_x0, in_tile_y1 - in_tile_y0);
-
-                ByteBuffer[] inputs = preprocess(inputTile);
-
-                // Inference
-                outputBuffer.getBuffer().clear();
-                tfLiteInterpreter.runForMultipleInputsOutputs(inputs, outputBindings);
-                // Postprocessing: Compute top K indices and convert to labels
-                Bitmap outputTile = postprocess();
-
-                inferenceTime+= tfLiteInterpreter.getLastNativeInferenceDurationNanoseconds();
-                int out_tile_x0 = xi > 0 ? scale * prepadding / 2 : 0;
-                int out_x0 = in_tile_x0 * scale + out_tile_x0;
-
-                if (xi > 0 || yi > 0) {
-                    Bitmap croppedTile = Bitmap.createBitmap(outputTile, out_tile_x0, out_tile_y0, (inputShape[1] * scale-out_tile_x0), (inputShape[2] * scale-out_tile_y0));
-                    canvas.drawBitmap(croppedTile, out_x0, out_y0, null);
-                } else
-                    canvas.drawBitmap(outputTile, out_x0, out_y0, null);
-            }
-
-        }
-
-        if (image.hasAlpha() ) {
-            Log.i("UpscaledBigImage","copy alpha channel");
-/*
-
-            int[] pixels = new int[inWidth * inHeight];
-            image.getPixels(pixels, 0, inWidth, 0, 0, inWidth, inHeight); // 获取所有像素
-
-            int firstAlpha = (pixels[0] >> 24) & 0xff; // 获取第一个像素的Alpha值
-
-            for (int pixel : pixels) {
-                int alpha = (pixel >> 24) & 0xff;
-                if (alpha != firstAlpha) {
-                    return imageOut;
-                }
-            }
-*/
-
-
-            Bitmap scaledBitmap = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888);
-
-            // 使用Canvas和Paint来绘制
-            Canvas canvas1 = new Canvas(scaledBitmap);
-            Paint paint = new Paint();
-
-            // 绘制RGB通道
-            canvas1.drawBitmap(imageOut, 0, 0, paint);
-
-            // 使用PorterDuff合并Alpha通道
-            paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
-            // 把原始图像的Alpha通道绘制到目标Bitmap上，采用scale倍放大
-            Bitmap scaledAlpha = Bitmap.createScaledBitmap(image, outWidth, outHeight, true);
-            canvas1.drawBitmap(scaledAlpha, 0, 0, paint);
-            paint.setXfermode(null);
-
-            // 重cycle对应的Bitmap以释放内存
-            scaledAlpha.recycle();
-
-            Log.i("UpscaledBigImage","copy alpha channel finish");
-            return scaledBitmap;
-
-        }else
-        return imageOut;
-    }
 }

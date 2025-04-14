@@ -14,17 +14,19 @@ public class ImageProcessing {
      * If the output image cannot fit perfectly within the requested output height / width,
      * padding is added such that the output bitmap will be the requested size.
      *
-     * @param image  Image to resize
+     * @param image              Image to resize
      * @param outputBitmapWidth  Final width
-     * @param outputBitmapHeight  Final height
-     * @param paddingValue  Value to use for padding (usually 0 or 0xFF)
+     * @param outputBitmapHeight Final height
+     * @param paddingValue       Value to use for padding (usually 0 or 0xFF)
      * @return Resized & padded bitmap
      */
     public static Bitmap resizeAndPadMaintainAspectRatio(
             Bitmap image,
             int outputBitmapWidth,
             int outputBitmapHeight,
-            int paddingValue) {
+            int paddingValue,
+            int channel
+    ) {
         int width = image.getWidth();
         int height = image.getHeight();
         float ratioBitmap = (float) width / (float) height;
@@ -33,36 +35,50 @@ public class ImageProcessing {
         int finalWidth = outputBitmapWidth;
         int finalHeight = outputBitmapHeight;
         if (ratioMax > ratioBitmap) {
-            finalWidth = (int) ((float)outputBitmapHeight * ratioBitmap);
+            finalWidth = (int) ((float) outputBitmapHeight * ratioBitmap);
         } else {
-            finalHeight = (int) ((float)outputBitmapWidth / ratioBitmap);
+            finalHeight = (int) ((float) outputBitmapWidth / ratioBitmap);
         }
 
-        Bitmap outputImage = Bitmap.createBitmap(outputBitmapWidth, outputBitmapHeight, Bitmap.Config.ARGB_8888);
-        Canvas can = new Canvas(outputImage);
-        can.drawARGB(0xFF, paddingValue, paddingValue, paddingValue);
-        can.drawBitmap(image, null, new RectF(0, 0, finalWidth, finalHeight), null);
-        return outputImage;
+        if (channel == 1) {
+            Bitmap outputImage = Bitmap.createBitmap(outputBitmapWidth, outputBitmapHeight, Bitmap.Config.ALPHA_8);
+            Canvas can = new Canvas(outputImage);
+            can.drawARGB(0xFF, paddingValue, paddingValue, paddingValue);
+            can.drawBitmap(image, null, new RectF(0, 0, finalWidth, finalHeight), null);
+            return outputImage;
+        } else {
+            Bitmap outputImage = Bitmap.createBitmap(outputBitmapWidth, outputBitmapHeight, Bitmap.Config.ARGB_8888);
+            Canvas can = new Canvas(outputImage);
+            can.drawARGB(0xFF, paddingValue, paddingValue, paddingValue);
+            can.drawBitmap(image, null, new RectF(0, 0, finalWidth, finalHeight), null);
+            return outputImage;
+        }
     }
 
     /**
      * padding a bitmap without ratio.
      *
-     * @param image  Image to resize
+     * @param image              Image to resize
      * @param outputBitmapWidth  Final width
-     * @param outputBitmapHeight  Final height
-     * @param paddingValue  Value to use for padding (usually 0 or 0xFF)
+     * @param outputBitmapHeight Final height
+     * @param paddingValue       Value to use for padding (usually 0 or 0xFF)
      * @return Resized & padded bitmap
      */
     public static Bitmap padding(
             Bitmap image,
             int outputBitmapWidth,
             int outputBitmapHeight,
-            int paddingValue) {
-        Bitmap outputImage = Bitmap.createBitmap(outputBitmapWidth, outputBitmapHeight, Bitmap.Config.ARGB_8888);
+            int paddingValue,
+            int channel
+    ) {
+        Bitmap outputImage;
+        if (channel == 1)
+            outputImage = Bitmap.createBitmap(outputBitmapWidth, outputBitmapHeight, Bitmap.Config.ALPHA_8);
+        else
+            outputImage = Bitmap.createBitmap(outputBitmapWidth, outputBitmapHeight, Bitmap.Config.ARGB_8888);
         Canvas can = new Canvas(outputImage);
         can.drawARGB(0xFF, paddingValue, paddingValue, paddingValue);
-        can.drawBitmap(image, null, new RectF(0, 0, image.getWidth(), image.getHeight()),null);
+        can.drawBitmap(image, null, new RectF(0, 0, image.getWidth(), image.getHeight()), null);
         return outputImage;
     }
 

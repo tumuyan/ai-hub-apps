@@ -196,7 +196,9 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/appTitleCard">
 
-        <ImageView
+
+<!--        <com.quicinc.MaskDrawingView-->
+        <com.quicinc.MaskableImageView
             android:id="@+id/selectedImageView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
