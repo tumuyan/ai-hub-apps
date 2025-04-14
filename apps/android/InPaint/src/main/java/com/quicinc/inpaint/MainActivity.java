@@ -34,7 +34,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.quicinc.MaskDrawingView;
 import com.quicinc.MaskableImageView;
 import com.quicinc.tflite.AIHubDefaults;
 
@@ -54,7 +53,6 @@ public class MainActivity extends AppCompatActivity {
     RadioGroup delegateSelectionGroup;
     RadioButton allDelegatesButton;
     RadioButton cpuOnlyButton;
-//    MaskDrawingView selectedImageView;
     MaskableImageView selectedImageView;
     TextView inferenceTimeView;
     TextView predictionTimeView;
@@ -385,8 +383,8 @@ public class MainActivity extends AppCompatActivity {
         backgroundTaskExecutor.execute(() -> {
             // Background task
             long upscaleStartTime = System.nanoTime();
-//            resultImage = imageClassification.generateUpscaledImage(selectedImage, selectedImageView.getMaskedBitmap());
 
+//            resultImage =  selectedImageView.getMask();
             resultImage = imageClassification.generateUpscaledImage(selectedImage, selectedImageView.getMask());
             long inferenceTime = imageClassification.getInferenceTime();
             String inferenceTimeText = timeFormatter.format((double) inferenceTime / 1000000);

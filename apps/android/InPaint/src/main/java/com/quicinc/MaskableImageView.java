@@ -360,7 +360,17 @@ public class MaskableImageView extends AppCompatImageView implements View.OnLayo
                 // Extract the alpha component (most significant byte).
                 // If the pixel was touched (e.g., solid red ARGB = 0xFFFF0000), alpha is FF.
                 // If transparent (ARGB = 0x00000000), alpha is 00.
-                alphaByteBuffer.put((byte) ((pixel >> 24) & 0xFF));
+                if(((pixel >> 24) & 0xFF)<16){
+                    alphaByteBuffer.put((byte) 0xFF); // Set alpha to FF (opaque)
+                }else{
+                    alphaByteBuffer.put((byte) 0x00); // Set alpha to 00 (transparent)
+                }
+
+//                if(pixel>128)
+//                    alphaByteBuffer.put((byte) 0xFF); // Set alpha to FF (opaque)
+//                else
+//                    alphaByteBuffer.put((byte) 0x00); // Set alpha to 00 (transparent)
+//                alphaByteBuffer.put((byte) ((pixel >> 24) & 0xFF));
             }
 
             alphaByteBuffer.rewind(); // Reset buffer position before reading
