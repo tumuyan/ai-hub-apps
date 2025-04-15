@@ -205,12 +205,12 @@ public class InPaint implements AutoCloseable {
 
         // Resize input image
         if (image.getWidth() > inputShape[1] || image.getHeight() > inputShape[2]) {
-            resizedImg = ImageProcessing.resizeAndPadMaintainAspectRatio(image, inputShape[1], inputShape[2], 0xFF, channel);
+            resizedImg = ImageProcessing.resizeAndPadMaintainAspectRatio(image, inputShape[1], inputShape[2], 0, channel);
             // This image is larger than the model's desired input size.
             // While this app could easily resize the large image to fit, that defeats the purpose of super resolution.
 //            throw new RuntimeException("Input image (" + image.getHeight()  + "*" +image.getWidth() + ") is too big for this model. Expected Width of " + inputShape[1] + " and Height of " + inputShape[2]);
         } else {
-            resizedImg = ImageProcessing.padding(image, inputShape[1], inputShape[2], 0xFF, channel);
+            resizedImg = ImageProcessing.padding(image, inputShape[1], inputShape[2], 0, channel);
         }
         ByteBuffer inputBuffer;
         if (image.getConfig() == Bitmap.Config.ALPHA_8) {
@@ -352,7 +352,7 @@ public class InPaint implements AutoCloseable {
      *
      * @return Upscaled image, in RGBA-8888 format.
      */
-    private Bitmap postprocess() {
+    private Bitmap postprocess(int width, int height) {
         long postStartTime = System.nanoTime();
 
         TensorImage img = outputImage;
@@ -362,11 +362,20 @@ public class InPaint implements AutoCloseable {
         }
         Bitmap bitmap = img.getBitmap();
 
+        if (img.getWidth() >= width && img.getHeight() >= height) {
+            bitmap = ImageProcessing.cropBitmap(bitmap, 0, 0, width, height);
+        } else if (img.getWidth() != width || img.getHeight() != height) {
+            int w = width > height ? img.getWidth() : width * img.getHeight() / height;
+            int h = height > width ? img.getHeight() : height * img.getWidth() / width;
+            bitmap = ImageProcessing.cropBitmap(bitmap, 0, 0, w, h);
+        }
+
         postprocessingTime = System.nanoTime() - postStartTime;
         Log.d(TAG, "Postprocessing Time: " + postprocessingTime / 1000000 + " ms");
 
         return bitmap;
     }
+
 
     /**
      * Upscale the provided input image.
@@ -384,7 +393,7 @@ public class InPaint implements AutoCloseable {
         tfLiteInterpreter.runForMultipleInputsOutputs(new ByteBuffer[]{imgBuffer, maskBuffer}, outputBindings);
 
         // Postprocessing: Compute top K indices and convert to labels
-        return postprocess();
+        return postprocess(image.getWidth(), image.getHeight());
     }
 
     long inferenceTime = 0;
